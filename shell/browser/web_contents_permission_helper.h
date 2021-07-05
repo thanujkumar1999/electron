@@ -23,7 +23,8 @@ class WebContentsPermissionHelper
     POINTER_LOCK = static_cast<int>(content::PermissionType::NUM) + 1,
     FULLSCREEN,
     OPEN_EXTERNAL,
-    SERIAL
+    SERIAL,
+    HID
   };
 
   // Asynchronous Requests
@@ -41,6 +42,11 @@ class WebContentsPermissionHelper
   bool CheckMediaAccessPermission(const GURL& security_origin,
                                   blink::mojom::MediaStreamType type) const;
   bool CheckSerialAccessPermission(const url::Origin& embedding_origin) const;
+  bool CheckHIDAccessPermission(const url::Origin& embedding_origin) const;
+  bool CheckHIDDevicePermission(const url::Origin& origin,
+                                base::Value device) const;
+  void GrantHIDDevicePermission(const url::Origin& origin,
+                                base::Value device) const;
 
  private:
   explicit WebContentsPermissionHelper(content::WebContents* web_contents);
@@ -53,6 +59,14 @@ class WebContentsPermissionHelper
 
   bool CheckPermission(content::PermissionType permission,
                        const base::DictionaryValue* details) const;
+
+  bool CheckDevicePermission(content::PermissionType permission,
+                             const url::Origin& origin,
+                             const base::Value* device) const;
+
+  void GrantDevicePermission(content::PermissionType permission,
+                             const url::Origin& origin,
+                             const base::Value* device) const;
 
   content::WebContents* web_contents_;
 

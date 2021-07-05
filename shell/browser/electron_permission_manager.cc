@@ -17,9 +17,13 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
+#include "shell/browser/api/electron_api_web_contents.h"
 #include "shell/browser/electron_browser_client.h"
 #include "shell/browser/electron_browser_main_parts.h"
 #include "shell/browser/web_contents_preferences.h"
+#include "shell/common/gin_converters/content_converter.h"
+#include "shell/common/gin_converters/value_converter.h"
+#include "shell/common/gin_helper/event_emitter_caller.h"
 
 namespace electron {
 
@@ -115,6 +119,16 @@ void ElectronPermissionManager::SetPermissionRequestHandler(
 void ElectronPermissionManager::SetPermissionCheckHandler(
     const CheckHandler& handler) {
   check_handler_ = handler;
+}
+
+void ElectronPermissionManager::SetDevicePermissionHandler(
+    const DeviceCheckHandler& handler) {
+  device_permission_handler_ = handler;
+}
+
+void ElectronPermissionManager::SetGrantDevicePermissionHandler(
+    const DeviceCheckHandler& handler) {
+  grant_device_permission_handler_ = handler;
 }
 
 void ElectronPermissionManager::RequestPermission(
@@ -280,6 +294,53 @@ bool ElectronPermissionManager::CheckPermissionWithDetails(
   }
   return check_handler_.Run(web_contents, permission, requesting_origin,
                             mutable_details);
+}
+
+bool ElectronPermissionManager::CheckDevicePermission(
+    content::PermissionType permission,
+    content::WebContents* web_contents,
+    const url::Origin& origin,
+    const base::Value* device) const {
+  api::WebContents* api_web_contents = api::WebContents::From(web_contents);
+  v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
+  v8::HandleScope scope(isolate);
+  auto details = gin::Dictionary::CreateEmpty(isolate);
+  details.Set("deviceType", permission);
+  details.Set("origin", origin.Serialize());
+  details.Set("device", device->Clone());
+  details.Set("webContents", api_web_contents);
+
+  if (device_permission_handler_.is_null()) {
+    bool ret = false;
+    v8::Local<v8::Value> val = gin_helper::CallMethod(
+        isolate, api_web_contents, "_defaultDevicePermissionHandler", details);
+    gin::ConvertFromV8(isolate, val, &ret);
+    return ret;
+  } else {
+    return device_permission_handler_.Run(details);
+  }
+}
+
+void ElectronPermissionManager::GrantDevicePermission(
+    content::PermissionType permission,
+    content::WebContents* web_contents,
+    const url::Origin& origin,
+    const base::Value* device) const {
+  api::WebContents* api_web_contents = api::WebContents::From(web_contents);
+  v8::Isolate* isolate = JavascriptEnvironment::GetIsolate();
+  v8::HandleScope scope(isolate);
+  auto details = gin::Dictionary::CreateEmpty(isolate);
+  details.Set("deviceType", permission);
+  details.Set("origin", origin.Serialize());
+  details.Set("device", device->Clone());
+  details.Set("webContents", api_web_contents);
+
+  if (grant_device_permission_handler_.is_null()) {
+    gin_helper::CallMethod(isolate, api_web_contents,
+                           "_defaultGrantDevicePermissionHandler", details);
+  } else {
+    grant_device_permission_handler_.Run(details);
+  }
 }
 
 blink::mojom::PermissionStatus
