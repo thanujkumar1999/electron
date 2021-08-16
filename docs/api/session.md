@@ -700,7 +700,7 @@ using this handler.
 const { session } = require('electron')
 const url = require('url')
 const grantedDevices = []
-session.fromPartition('some-partition').setDevicePermissionHandler((details) => {
+session.fromPartition('some-partition').setGrantDevicePermissionHandler((details) => {
   if (new URL(details.origin).hostname === 'some-host' && details.deviceType === 'hid') {
     grantedDevices.push(details.device)
   }
