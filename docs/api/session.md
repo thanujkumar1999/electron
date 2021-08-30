@@ -195,9 +195,8 @@ Emitted when a HID device needs to be selected when a call to
 `navigator.hid.requestDevice` is made. `callback` should be called with
 `deviceId` to be selected, passing an empty string to `callback` will
 cancel the request.  Additionally, permissioning on `navigator.hid` can
-be further managed by using [ses.setPermissionCheckHandler(handler)](#sessetpermissioncheckhandlerhandler),
-[ses.setDevicePermissionHandler(handler)`](#sessetdevicepermissionhandlerhandler), and
-[ses.setGrantDevicePermissionHandler(handler)](#sessetgrantdevicepermissionhandlerhandler) handlers.
+be further managed by using [ses.setPermissionCheckHandler(handler)](#sessetpermissioncheckhandlerhandler)
+and [ses.setDevicePermissionHandler(handler)`](#sessetdevicepermissionhandlerhandler).
 
 ```javascript
 const { app, BrowserWindow } = require('electron')
@@ -217,15 +216,8 @@ app.whenReady().then(() => {
     }
   })
 
+  // Retrieve previously persisted devices from an (optional) store here
   const grantedDevices = []
-
-  win.webContents.session.setGrantDevicePermissionHandler((details) => {
-    if (new URL(details.origin).hostname === 'some-host' && details.deviceType === 'hid') {
-      // Keep track of devices that have been granted via `navigator.hid.requestDevice`
-      // If this handler isn't defined, Electron will track this internally.
-      grantedDevices.push(details.device)
-    }
-  })
 
   win.webContents.session.setDevicePermissionHandler((details) => {
     if (new URL(details.origin).hostname === 'some-host' && details.deviceType === 'hid') {
@@ -233,27 +225,27 @@ app.whenReady().then(() => {
         // Always allow this type of device (this allows skipping the call to `navigator.hid.requestDevice` first)
         return true
       }
-      const foundDevice = grantedDevices.find((grantedDevice) => {
+
+      // Search through the list of devices that have previously been granted permission
+      return grantedDevices.some((grantedDevice) => {
         return grantedDevice.vendorId === details.device.vendorId &&
               grantedDevice.productId === details.device.productId &&
               grantedDevice.serialNumber && grantedDevice.serialNumber === details.device.serialNumber
       })
-      if (foundDevice) {
-        return true
-      }
     }
     return false
   })
 
   win.webContents.session.on('select-hid-device', (event, details, callback) => {
     event.preventDefault()
-    const selectedPort = details.deviceList.find((device) => {
+    const selectedDevice = details.deviceList.find((device) => {
       return device.vendorId === '9025' && device.productId === '67'
     })
-    if (!selectedPort) {
+    if (!selectedDevice) {
       callback('')
     } else {
-      callback(selectedPort.deviceId)
+      grantedDevices.push(device)
+      callback(selectedDevice.deviceId)
     }
   })
 })
@@ -665,44 +657,46 @@ session.fromPartition('some-partition').setPermissionCheckHandler((webContents, 
 
 Sets the handler which can be used to respond to device permission checks for the `session`.
 Returning `true` will allow the device to be permitted and `false` will reject it.
-To clear the handler, call `setDevicePermissionHandler(null)`.  If this handler is not defined, the default
-device permissions as granted through device selection (eg `navigator.hid.requestDevice`) will be used.
+To clear the handler, call `setDevicePermissionHandler(null)`.
+This handler can be used to provide default permissioning to devices without first calling for permission
+to devices (eg via `navigator.hid.requestDevice`).  If this handler is not defined, the default device
+permissions as granted through device selection (eg via `navigator.hid.requestDevice`) will be used.
+Additionally, the default behaviour of Electron is to store granted device permision through the lifetime
+of the corresponding WebContents.  If longer term storage is needed, a developer can store granted device
+permissions (eg when handling the `select-hid-device` event) and then read from that storage with `setDevicePermissionHandler`.
 
 ```javascript
 const { session } = require('electron')
 const url = require('url')
+const grantedDevices = // Retrieve previously persisted devices from an (optional) store here
+
 session.fromPartition('some-partition').setDevicePermissionHandler((details) => {
   if (new URL(details.origin).hostname === 'some-host' && details.deviceType === 'hid') {
     if (details.device.vendorId === 123 && details.device.productId === 345) {
-      return true // granted
+      // Always allow this type of device (this allows skipping the call to `navigator.hid.requestDevice` first)
+      return true // Approved permission
     }
+
+    // Search through the list of devices that have previously been granted permission
+    return grantedDevices.some((grantedDevice) => {
+      return grantedDevice.vendorId === details.device.vendorId &&
+            grantedDevice.productId === details.device.productId &&
+            grantedDevice.serialNumber && grantedDevice.serialNumber === details.device.serialNumber
+    })
   }
-  return false // denied
+  return false // Denied permission
 })
-```
 
-#### `ses.setGrantDevicePermissionHandler(handler)`
-
-* `handler` Function | null
-  * `details` Object
-    * `deviceType` String - The type of device that permission is being granted to, can be `hid`.
-    * `origin` String - The origin URL that is granting permission.
-    * `device` [HIDDevice](structures/hid-device.md) - the device that has been granted permission.
-    * `webContents` [WebContents](web-contents.md) - WebContents granting the device permission.
-
-Sets the handler which can be used to respond to a request to grant device permission for the `session`.
-To clear the handler, call `setGrantDevicePermissionHandler(null)`.  If this handler isn't defined, Electron
-will keep track of the granted devices internally on the WebContents.  If it is desired to persist granted
-devices beyond the lifetime of the WebContents, then developers should somehow persist those granted devices
-using this handler.
-
-```javascript
-const { session } = require('electron')
-const url = require('url')
-const grantedDevices = []
-session.fromPartition('some-partition').setGrantDevicePermissionHandler((details) => {
-  if (new URL(details.origin).hostname === 'some-host' && details.deviceType === 'hid') {
-    grantedDevices.push(details.device)
+session.fromPartition('some-partition').on('select-hid-device', (event, details, callback) => {
+  event.preventDefault()
+  const selectedDevice = details.deviceList.find((device) => {
+    return device.vendorId === '9025' && device.productId === '67'
+  })
+  if (!selectedDevice) {
+    callback('')
+  } else {
+    // Persist to grantedDevices here
+    callback(selectedDevice.deviceId)
   }
 })
 ```
